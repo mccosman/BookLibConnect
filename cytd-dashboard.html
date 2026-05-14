@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CYTD Score — AI Citation Visibility Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Helvetica, Arial, sans-serif; }
+
+        body { background: #f1f5f9; }
+
+        /* Sidebar */
+        .sidebar { background: #0f172a; width: 240px; flex-shrink: 0; }
+
+        .nav-label {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: #475569; padding: 0 16px; margin-bottom: 4px; margin-top: 20px;
+        }
+
+        .nav-item {
+            display: flex; align-items: center; padding: 9px 16px; margin: 1px 8px;
+            color: #94a3b8; font-size: 13.5px; cursor: pointer;
+            transition: all 0.15s; border-radius: 7px; gap: 10px; border: none;
+            background: transparent; width: calc(100% - 16px); text-align: left;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.07); color: #e2e8f0; }
+        .nav-item.active { background: rgba(99,102,241,0.2); color: #a5b4fc; font-weight: 600; }
+
+        /* Score ring — CSS conic-gradient, no SVG */
+        .score-ring {
+            width: 176px; height: 176px; border-radius: 50%;
+            background: conic-gradient(
+                #6366f1 calc(var(--pct, 74) * 1%),
+                #1e293b calc(var(--pct, 74) * 1%)
+            );
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto;
+        }
+        .score-ring-inner {
+            width: 144px; height: 144px; border-radius: 50%;
+            background: white; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+        }
+
+        /* Cards */
+        .card {
+            background: white; border-radius: 12px; border: 1px solid #e2e8f0;
+            padding: 22px; transition: box-shadow 0.2s;
+        }
+        .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.07); }
+
+        /* Charts */
+        .chart-wrap { position: relative; width: 100%; height: 280px; }
+
+        /* Chat messages */
+        .msg-ai {
+            background: #f1f5f9; border-radius: 0 12px 12px 12px;
+            padding: 14px 16px; font-size: 13.5px; color: #334155; line-height: 1.65;
+            max-width: 88%;
+        }
+        .msg-user {
+            background: #6366f1; color: white; border-radius: 12px 0 12px 12px;
+            padding: 12px 16px; font-size: 13.5px; line-height: 1.55;
+            max-width: 80%; margin-left: auto;
+        }
+        .msg-ai strong { color: #1e293b; }
+        .msg-ai code {
+            background: #e2e8f0; padding: 1px 5px; border-radius: 4px;
+            font-size: 12px; font-family: monospace;
+        }
+        .msg-ai li { margin-left: 16px; margin-bottom: 3px; list-style: disc; }
+
+        /* Animations */
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeUp 0.22s ease-out; }
+
+        @keyframes dotPulse {
+            0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1); }
+        }
+        .dot-loader span {
+            display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            background: #94a3b8; margin: 0 2px;
+            animation: dotPulse 1.4s ease-in-out infinite;
+        }
+        .dot-loader span:nth-child(2) { animation-delay: 0.2s; }
+        .dot-loader span:nth-child(3) { animation-delay: 0.4s; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+        /* Mobile overlay */
+        #mob-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40; }
+
+        /* Progress bars */
+        .bar { height: 6px; border-radius: 3px; background: #f1f5f9; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+<!-- Mobile overlay -->
+<div id="mob-overlay" onclick="closeMobile()"></div>
+
+<!-- ======================== SIDEBAR ======================== -->
+<aside id="sidebar" class="sidebar flex flex-col h-full shadow-2xl fixed md:relative z-50 -translate-x-full md:translate-x-0 transition-transform duration-300">
+
+    <!-- Logo -->
+    <div class="p-5 border-b border-white/10 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white font-bold text-sm shadow-lg">C</div>
+        <div>
+            <div class="text-white font-bold text-base tracking-tight">CYTD Score</div>
+            <div class="text-slate-500 text-xs">AI Citation Visibility</div>
+        </div>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 overflow-y-auto py-2">
+        <div class="nav-label">Analytics</div>
+        <button onclick="go('overview')" id="nav-overview" class="nav-item active">
+            <span>📊</span> CYTD Score
+        </button>
+        <button onclick="go('models')" id="nav-models" class="nav-item">
+            <span>🤖</span> AI Model Coverage
+        </button>
+        <button onclick="go('competitors')" id="nav-competitors" class="nav-item">
+            <span>⚖️</span> Competitor Benchmarks
+        </button>
+
+        <div class="nav-label">Optimize</div>
+        <button onclick="go('tasks')" id="nav-tasks" class="nav-item">
+            <span>⚡</span> Optimization Tasks
+        </button>
+        <button onclick="go('simulator')" id="nav-simulator" class="nav-item">
+            <span>🔍</span> Query Simulator
+        </button>
+        <button onclick="go('content')" id="nav-content" class="nav-item">
+            <span>✍️</span> Content Optimizer
+        </button>
+        <button onclick="go('llmstxt')" id="nav-llmstxt" class="nav-item">
+            <span>📄</span> LLMs.txt Builder
+        </button>
+
+        <div class="nav-label">Help</div>
+        <button onclick="go('guide')" id="nav-guide" class="nav-item">
+            <span>💬</span> AI Guide
+        </button>
+    </nav>
+
+    <!-- Status pill -->
+    <div class="p-4 border-t border-white/10">
+        <div class="bg-indigo-500/15 rounded-xl p-3.5">
+            <div class="flex items-center gap-2 mb-1">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block" style="animation: dotPulse 2s infinite"></span>
+                <span class="text-xs font-semibold text-indigo-300">Monitoring Active</span>
+            </div>
+            <p class="text-xs text-slate-500">6 AI engines · Updated 2 hrs ago</p>
+        </div>
+    </div>
+</aside>
+
+<!-- ======================== MAIN ======================== -->
+<div class="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+
+    <!-- Mobile header -->
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between md:hidden flex-shrink-0 shadow-sm">
+        <button onclick="openMobile()" class="p-2 rounded-lg bg-slate-100 text-slate-700 text-lg">☰</button>
+        <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-xs">C</div>
+            <span class="font-bold text-slate-800">CYTD Score</span>
+        </div>
+        <div class="w-9"></div>
+    </header>
+
+    <!-- Content -->
+    <main id="main" class="flex-1 overflow-y-auto">
+        <!-- Rendered by JS -->
+    </main>
+</div>
+
+<!-- ======================== JAVASCRIPT ======================== -->
+<script>
+/* ─── STATE ─────────────────────────────────────────────────────────── */
+const S = { view: 'overview', charts: {} };
+
+/* ─── GEMINI API KEY ─────────────────────────────────────────────────
+   Add your Gemini API key here, or set it via the UI.
+   Get one free at https://aistudio.google.com/apikey
+   Leave blank to use pre-built offline responses (AI Guide, LLMs.txt). */
+let GEMINI_KEY = localStorage.getItem('cytd_gemini_key') || '';
+const GEMINI_URL = k => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k}`;
+
+async function gemini(payload) {
+    if (!GEMINI_KEY) throw new Error('NO_KEY');
+    const r = await fetch(GEMINI_URL(GEMINI_KEY), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    return r.json();
+}
+
+/* ─── DATA ───────────────────────────────────────────────────────────── */
+const D = {
+    score: 74, visibility: 84, compliance: 71, relevance: 67,
+    trend: {
+        labels: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
+        cytd:       [38, 45, 51, 57, 65, 70, 74],
+        visibility: [42, 48, 55, 62, 73, 79, 84],
+        compliance: [45, 48, 52, 58, 63, 68, 71],
+        relevance:  [30, 38, 45, 52, 58, 63, 67]
+    },
+    platforms: [
+        { name: 'ChatGPT',      icon: '🟢', score: 88, status: 'Strong',   mentions: '2.1K/mo', trend: '+6' },
+        { name: 'Claude',       icon: '🟣', score: 79, status: 'Strong',   mentions: '1.4K/mo', trend: '+4' },
+        { name: 'Gemini',       icon: '🔵', score: 63, status: 'Moderate', mentions: '890/mo',  trend: '+9' },
+        { name: 'Perplexity',   icon: '🟡', score: 52, status: 'Moderate', mentions: '640/mo',  trend: '+3' },
+        { name: 'Grok',         icon: '⚫', score: 41, status: 'Weak',     mentions: '310/mo',  trend: '+2' },
+        { name: 'Bing Copilot', icon: '🔷', score: 35, status: 'Weak',     mentions: '220/mo',  trend: '+1' }
+    ],
+    competitors: {
+        names:      ['Your Brand', 'Rival Alpha', 'Rival Beta', 'Rival Gamma'],
+        visibility: [84, 76, 52, 38],
+        compliance: [71, 65, 48, 35],
+        relevance:  [67, 58, 44, 29]
+    },
+    coverage: [
+        { topic: 'Product Features', pct: 78 },
+        { topic: 'Pricing & Plans',  pct: 62 },
+        { topic: 'Technical Docs',   pct: 71 },
+        { topic: 'Use Cases',        pct: 85 },
+        { topic: 'Comparisons',      pct: 56 },
+        { topic: 'Support & FAQs',   pct: 69 }
+    ],
+    tasks: [
+        { id:1, title:'Add LLMs.txt to Root Domain',               impact:'High',   platform:'All Engines', pillar:'Compliance', status:'Pending',
+          desc:'The LLMs.txt standard tells AI crawlers how to understand your site. Publishing one immediately improves indexability across all major AI engines — one of the highest-ROI moves in AEO right now.' },
+        { id:2, title:'Fix Stale Pricing Data in ChatGPT',          impact:'High',   platform:'ChatGPT',     pillar:'Visibility',  status:'In Progress',
+          desc:'GPT-4 is citing a 2023 pricing page that no longer exists. Submit a structured FAQ with current pricing and a clear publication date so the model pulls fresh data.' },
+        { id:3, title:'Add FAQ Schema Markup to Homepage',           impact:'High',   platform:'All Engines', pillar:'Compliance', status:'Pending',
+          desc:'Structured FAQ schema lets AI models extract your content precisely and cite it with confidence. This is the single highest-ROI technical implementation for AEO.' },
+        { id:4, title:'Publish "Alternatives to Rival Beta" Page',   impact:'Medium', platform:'Perplexity',  pillar:'Relevance',  status:'Pending',
+          desc:'Perplexity consistently surfaces Rival Beta for comparison queries. A well-structured comparison page with entity-rich content and clear differentiators will shift this.' },
+        { id:5, title:'Submit to AI-Trusted Directories',            impact:'Medium', platform:'Grok',        pillar:'Visibility',  status:'Pending',
+          desc:"Grok's low citation rate stems from limited third-party authority signals. Listings on Product Hunt, G2, and Crunchbase directly feed AI training pipelines." }
+    ]
+};
+
+/* ─── HELPERS ────────────────────────────────────────────────────────── */
+function esc(s) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+}
+
+function md(text) {
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`(.*?)`/g, '<code>$1</code>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+        .replace(/\n\n/g, '</p><p style="margin-top:8px">')
+        .replace(/^/, '<p>').replace(/$/, '</p>');
+}
+
+function clip(text, btn, ok = '✅ Copied') {
+    const orig = btn.innerHTML;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            btn.innerHTML = ok;
+            setTimeout(() => btn.innerHTML = orig, 2000);
+        });
+    } else {
+        const t = document.createElement('textarea');
+        t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
+        document.body.appendChild(t); t.select(); document.execCommand('copy');
+        document.body.removeChild(t);
+        btn.innerHTML = ok;
+        setTimeout(() => btn.innerHTML = orig, 2000);
+    }
+}
+
+function clipEl(id, btn) { clip(document.getElementById(id)?.innerText || '', btn); }
+function destroyCharts() { Object.values(S.charts).forEach(c => c?.destroy()); S.charts = {}; }
+
+/* ─── PILLAR CARD HTML ───────────────────────────────────────────────── */
+function pillarCard(icon, label, subtitle, score, barColor, delta) {
+    return `
+    <div class="card hover:border-indigo-200">
+        <div class="flex items-start justify-between mb-4">
+            <div>
+                <div class="text-sm font-semibold text-slate-700">${label}</div>
+                <div class="text-xs text-slate-400 mt-0.5">${subtitle}</div>
+            </div>
+            <span class="text-xl">${icon}</span>
+        </div>
+        <div class="text-3xl font-bold text-slate-900 mb-1">${score}<span class="text-base text-slate-400 font-normal">/100</span></div>
+        <div class="bar mb-2"><div class="bar-fill ${barColor}" style="width:${score}%"></div></div>
+        <div class="text-xs font-medium ${score >= 70 ? 'text-emerald-600' : score >= 50 ? 'text-amber-600' : 'text-red-600'}">▲ ${delta} this month</div>
+    </div>`;
+}
+
+/* ─── VIEWS ──────────────────────────────────────────────────────────── */
+
+/* OVERVIEW */
+function vOverview() {
+    return `<div class="p-6 md:p-8 max-w-6xl mx-auto fade-in">
+
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Your CYTD Score</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                CYTD Score measures how visible, compliant, and relevant your brand is inside AI-generated answers —
+                across ChatGPT, Claude, Gemini, Perplexity, Grok, and Bing Copilot. Think of it as the new SEO, but for AI assistants.
+            </p>
+        </div>
+
+        <!-- Score row -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-5 mb-6">
+
+            <div class="card lg:col-span-1 flex flex-col items-center justify-center text-center gap-4">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-widest">CYTD Score</div>
+                <div class="score-ring" style="--pct:${D.score}">
+                    <div class="score-ring-inner">
+                        <div class="text-4xl font-bold text-slate-900 leading-none">${D.score}</div>
+                        <div class="text-xs text-slate-400 mt-1">out of 100</div>
+                    </div>
+                </div>
+                <div class="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full font-semibold border border-emerald-200">
+                    ▲ +8 pts this month
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                ${pillarCard('👁️', 'Visibility', 'How often AI mentions you', D.visibility, 'bg-indigo-500', '+5 pts')}
+                ${pillarCard('✅', 'Compliance', 'AI quality & trust signals', D.compliance, 'bg-emerald-500', '+3 pts')}
+                ${pillarCard('🎯', 'Relevance', 'Matches user intent', D.relevance, 'bg-amber-500', '+4 pts')}
+            </div>
+        </div>
+
+        <!-- Trend chart -->
+        <div class="card mb-5">
+            <div class="flex items-center justify-between mb-1">
+                <h3 class="font-semibold text-slate-800">Score Trend — 7 Months</h3>
+            </div>
+            <p class="text-xs text-slate-400 mb-5">Monthly progression across all three CYTD pillars (10,000 test queries/month)</p>
+            <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+        </div>
+
+        <!-- Platform grid -->
+        <div class="card mb-5">
+            <h3 class="font-semibold text-slate-800 mb-1">AI Engine Coverage</h3>
+            <p class="text-xs text-slate-400 mb-4">Citation monitoring across 6 major platforms</p>
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                ${D.platforms.map(p => `
+                <div class="rounded-xl border p-3 text-center transition-all hover:shadow-md cursor-default
+                    ${p.score >= 70 ? 'border-emerald-200 bg-emerald-50' : p.score >= 50 ? 'border-amber-200 bg-amber-50' : 'border-red-200 bg-red-50'}">
+                    <div class="text-2xl mb-1">${p.icon}</div>
+                    <div class="text-xs font-semibold text-slate-700 leading-tight">${p.name}</div>
+                    <div class="text-xl font-bold mt-1 ${p.score >= 70 ? 'text-emerald-700' : p.score >= 50 ? 'text-amber-700' : 'text-red-700'}">${p.score}</div>
+                    <div class="text-xs font-medium mt-0.5 ${p.score >= 70 ? 'text-emerald-500' : p.score >= 50 ? 'text-amber-500' : 'text-red-400'}">▲${p.trend}</div>
+                </div>`).join('')}
+            </div>
+        </div>
+
+        <!-- CTA -->
+        <div class="rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-800 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg">
+            <div>
+                <h4 class="font-bold text-white text-lg mb-1">5 optimization tasks ready for you</h4>
+                <p class="text-indigo-200 text-sm">Completing the top 3 tasks could push your CYTD Score above 85 within 6 weeks.</p>
+            </div>
+            <button onclick="go('tasks')" class="bg-white text-indigo-700 font-semibold px-5 py-2.5 rounded-lg hover:bg-indigo-50 transition-colors text-sm whitespace-nowrap shadow">
+                View Tasks →
+            </button>
+        </div>
+    </div>`;
+}
+
+/* MODEL COVERAGE */
+function vModels() {
+    const insights = {
+        'ChatGPT': 'Strong overall. GPT-4 recommends your brand for mid-market use cases. Priority: fix stale pricing data from 2023 — this is lowering Relevance score for purchase-intent queries.',
+        'Claude': 'High citation accuracy with strong technical understanding. Needs more recent case study content to increase mention frequency beyond current niche queries.',
+        'Gemini': 'Moderate and growing fast (Gemini powers Google AI Overview). Weakness: Gemini favors Google-adjacent sources. Earn more third-party citations and submit a Bing sitemap.',
+        'Perplexity': 'Perplexity relies on live web crawling. Ensure fast page loads, structured FAQ content, and a current sitemap. Adding LLMs.txt would directly improve this score.',
+        'Grok': 'Low visibility due to X/Twitter ecosystem bias. Building authority on X (citations from verified accounts, X-native content) is the fastest path to improvement here.',
+        'Bing Copilot': 'Lowest performer. Copilot indexes via Bing — verify your site in Bing Webmaster Tools, submit an updated sitemap, and ensure structured data is present on key pages.'
+    };
+    return `<div class="p-6 md:p-8 max-w-6xl mx-auto fade-in">
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">AI Model Coverage</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                Each AI engine uses different training data, crawling strategies, and retrieval methods.
+                Here's exactly where you stand — and what to fix — in each one.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+            ${D.platforms.map(p => `
+            <div class="card">
+                <div class="flex items-start justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                        <span class="text-3xl">${p.icon}</span>
+                        <div>
+                            <div class="font-semibold text-slate-800">${p.name}</div>
+                            <div class="text-xs text-slate-400">${p.mentions} brand mentions</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-2xl font-bold ${p.score >= 70 ? 'text-emerald-600' : p.score >= 50 ? 'text-amber-600' : 'text-red-600'}">${p.score}</div>
+                        <span class="text-xs font-medium px-2 py-0.5 rounded-full
+                            ${p.score >= 70 ? 'bg-emerald-100 text-emerald-700' : p.score >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}">
+                            ${p.status}
+                        </span>
+                    </div>
+                </div>
+                <div class="bar mb-3">
+                    <div class="bar-fill ${p.score >= 70 ? 'bg-emerald-500' : p.score >= 50 ? 'bg-amber-500' : 'bg-red-500'}" style="width:${p.score}%"></div>
+                </div>
+                <p class="text-xs text-slate-500 leading-relaxed">${insights[p.name]}</p>
+            </div>`).join('')}
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div class="card">
+                <h3 class="font-semibold text-slate-800 mb-1">Share of Voice by Platform</h3>
+                <p class="text-xs text-slate-400 mb-4">Brand mention distribution across all AI engines</p>
+                <div class="chart-wrap" style="height:260px"><canvas id="modelShareChart"></canvas></div>
+            </div>
+            <div class="card">
+                <h3 class="font-semibold text-slate-800 mb-4">Topic Coverage Matrix</h3>
+                <div class="space-y-4">
+                    ${D.coverage.map(c => `
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="font-medium text-slate-600">${c.topic}</span>
+                            <span class="text-slate-400 font-medium">${c.pct}%</span>
+                        </div>
+                        <div class="bar"><div class="bar-fill bg-indigo-400" style="width:${c.pct}%"></div></div>
+                    </div>`).join('')}
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+/* COMPETITORS */
+function vCompetitors() {
+    return `<div class="p-6 md:p-8 max-w-6xl mx-auto fade-in">
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Competitor Benchmarks</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                AI models group brands together into entity clusters. If a competitor is mentioned but you're not,
+                there's an optimization gap. Find it. Close it.
+            </p>
+        </div>
+
+        <div class="card mb-5">
+            <h3 class="font-semibold text-slate-800 mb-1">Brand Visibility vs Competitors</h3>
+            <p class="text-xs text-slate-400 mb-5">Visibility, Compliance, and Relevance scores across all platforms (10K queries/month)</p>
+            <div class="chart-wrap"><canvas id="competitorChart"></canvas></div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+            ${['visibility','compliance','relevance'].map(pillar => `
+            <div class="card">
+                <h4 class="font-semibold text-slate-700 mb-4 capitalize">${pillar}</h4>
+                <div class="space-y-3">
+                    ${D.competitors.names.map((name, j) => `
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="font-medium ${j === 0 ? 'text-indigo-700' : 'text-slate-500'}">${name}</span>
+                            <span class="font-semibold ${j === 0 ? 'text-indigo-700' : 'text-slate-400'}">${D.competitors[pillar][j]}</span>
+                        </div>
+                        <div class="bar">
+                            <div class="bar-fill ${j === 0 ? 'bg-indigo-500' : 'bg-slate-300'}"
+                                style="width:${D.competitors[pillar][j]}%"></div>
+                        </div>
+                    </div>`).join('')}
+                </div>
+            </div>`).join('')}
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+                <div class="flex items-center gap-2 mb-2"><span class="text-lg">✅</span><h4 class="font-semibold text-emerald-900">Your Competitive Edge</h4></div>
+                <p class="text-sm text-emerald-800 leading-relaxed">AI models associate your brand with "ease of implementation" and "fast time-to-value" at 40% higher frequency than Rival Alpha. Double down on this in new content.</p>
+            </div>
+            <div class="rounded-xl border border-orange-200 bg-orange-50 p-5">
+                <div class="flex items-center gap-2 mb-2"><span class="text-lg">⚠️</span><h4 class="font-semibold text-orange-900">Critical Gap to Close</h4></div>
+                <p class="text-sm text-orange-800 leading-relaxed">Rival Beta dominates "enterprise compliance" queries across Gemini and Bing Copilot. Publishing authoritative compliance content with schema markup can shift this within 60 days.</p>
+            </div>
+            <div class="rounded-xl border border-blue-200 bg-blue-50 p-5">
+                <div class="flex items-center gap-2 mb-2"><span class="text-lg">💡</span><h4 class="font-semibold text-blue-900">Open Opportunity</h4></div>
+                <p class="text-sm text-blue-800 leading-relaxed">Rival Gamma (score: 38) is the weakest on Compliance. For "alternatives" searches, you have a clean path to dominate on Perplexity and ChatGPT with well-structured comparison content.</p>
+            </div>
+            <div class="rounded-xl border border-purple-200 bg-purple-50 p-5">
+                <div class="flex items-center gap-2 mb-2"><span class="text-lg">📈</span><h4 class="font-semibold text-purple-900">Trajectory</h4></div>
+                <p class="text-sm text-purple-800 leading-relaxed">At current velocity, you'll surpass Rival Alpha's CYTD Score within 6–8 weeks. Rival Alpha has stagnated at 76 for 3 months; you're +8 pts this month.</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+/* TASKS */
+function vTasks() {
+    return `<div class="p-6 md:p-8 max-w-6xl mx-auto fade-in">
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Optimization Tasks</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                Prioritized actions derived from AI behavior analysis — each tied to a specific pillar and platform.
+            </p>
+        </div>
+
+        <div class="bg-indigo-900 rounded-xl p-6 mb-6 shadow-lg">
+            <div class="flex items-start gap-3 mb-4">
+                <span class="text-2xl mt-0.5">✨</span>
+                <div>
+                    <h3 class="text-white font-semibold text-base">AI Task Generator</h3>
+                    <p class="text-indigo-300 text-sm mt-0.5">Enter your brand and industry to generate custom AEO tasks via Gemini.</p>
+                </div>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3 mb-3">
+                <input id="brand-input" type="text" placeholder="Your brand name"
+                    class="flex-1 px-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm">
+                <input id="industry-input" type="text" placeholder="Industry (e.g. SaaS, eCommerce, Healthcare)"
+                    class="flex-1 px-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm">
+                <button onclick="generateTasks()" id="btn-gen-tasks"
+                    class="bg-white text-indigo-700 font-semibold py-2.5 px-5 rounded-lg hover:bg-indigo-50 transition-colors text-sm whitespace-nowrap">
+                    Generate with AI
+                </button>
+            </div>
+            <p id="key-notice" class="text-xs text-indigo-400 ${GEMINI_KEY ? 'hidden' : ''}">
+                ⚠️ No API key set — <button onclick="promptKey()" class="underline hover:text-white">add your Gemini key</button> to enable AI generation.
+            </p>
+        </div>
+
+        <div class="space-y-3" id="taskList">${taskItems(D.tasks)}</div>
+    </div>`;
+}
+
+function taskItems(tasks) {
+    const pillarClr = { Visibility: 'bg-indigo-100 text-indigo-700', Compliance: 'bg-emerald-100 text-emerald-700', Relevance: 'bg-amber-100 text-amber-700' };
+    const impactClr = { High: 'bg-red-100 text-red-700', Medium: 'bg-orange-100 text-orange-700', Low: 'bg-slate-100 text-slate-600' };
+    return tasks.map(t => `
+    <div class="card flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-center gap-2 mb-1.5">
+                <h4 class="font-semibold text-slate-800 text-sm">${esc(t.title)}</h4>
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium ${impactClr[t.impact] || 'bg-slate-100 text-slate-600'}">${t.impact} Impact</span>
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium ${pillarClr[t.pillar] || 'bg-slate-100 text-slate-600'}">${t.pillar}</span>
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">${esc(t.platform)}</span>
+            </div>
+            <p class="text-xs text-slate-500 leading-relaxed">${esc(t.desc)}</p>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+            <button onclick="copyTask(${t.id},this)" class="text-xs text-slate-400 hover:text-indigo-600 transition-colors px-2 py-1">📋</button>
+            <button onclick="cycleTask(${t.id},this)"
+                class="text-sm font-medium px-4 py-2 rounded-lg border transition-colors min-w-[110px] text-center
+                ${t.status==='Completed' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : t.status==='In Progress' ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'}">
+                ${t.status==='Completed' ? '✓ Done' : t.status==='In Progress' ? '◐ In Progress' : '○ Pending'}
+            </button>
+        </div>
+    </div>`).join('');
+}
+
+/* SIMULATOR */
+function vSimulator() {
+    const examples = [
+        'What are the best project management tools for remote teams in 2025?',
+        'How do I choose between [Your Brand] and a competitor?',
+        'What does [Your Brand] do and who is it for?',
+        'What are the top alternatives to [Rival Alpha]?'
+    ];
+    return `<div class="p-6 md:p-8 max-w-4xl mx-auto fade-in">
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Live Query Simulator</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                Type any question a customer might ask ChatGPT or Gemini. See the raw AI response and check whether your brand is being surfaced — or if a competitor is winning the mention.
+            </p>
+        </div>
+
+        <div class="card mb-5">
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Simulate a User Prompt</label>
+            <textarea id="sim-prompt" rows="3"
+                class="w-full px-4 py-3 rounded-lg border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                placeholder='e.g., "What are the best tools for X in 2025?"'></textarea>
+            <div class="flex flex-wrap gap-2 mt-3 mb-4">
+                ${examples.map(e => `<button onclick="document.getElementById('sim-prompt').value=${JSON.stringify(e)}"
+                    class="text-xs bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 px-3 py-1.5 rounded-full transition-colors">${e.slice(0,42)}…</button>`).join('')}
+            </div>
+            <button onclick="runSim()" id="btn-run-sim"
+                class="bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 px-6 rounded-lg transition-colors text-sm flex items-center gap-2">
+                <span>▶</span> Run via Gemini
+            </button>
+            <p id="sim-key-note" class="text-xs text-slate-400 mt-2 ${GEMINI_KEY ? 'hidden' : ''}">
+                Needs a Gemini API key — <button onclick="promptKey()" class="text-indigo-600 underline">add key</button>
+            </p>
+        </div>
+
+        <div id="sim-results" class="hidden fade-in">
+            <div class="card bg-slate-50 border-slate-200">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Gemini Response</span>
+                    </div>
+                    <button onclick="clipEl('sim-output',this)"
+                        class="text-xs bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg shadow-sm transition-colors flex items-center gap-1">
+                        📋 Copy
+                    </button>
+                </div>
+                <div id="sim-output" class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed font-mono bg-white border border-slate-100 rounded-lg p-4 min-h-[80px]"></div>
+            </div>
+        </div>
+    </div>`;
+}
+
+/* CONTENT OPTIMIZER */
+function vContent() {
+    return `<div class="p-6 md:p-8 max-w-6xl mx-auto fade-in">
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Content Optimizer</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                LLMs prefer high information density, clear entity relationships, and structured facts.
+                Paste your content and we'll rewrite it for maximum AI citability.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            ${[['🏷️','Named Entities','Clear brand & product references'],
+               ['📋','Structured Lists','Bullets AI can extract easily'],
+               ['🔢','Specific Data','Numbers, dates, stats'],
+               ['🔗','Relationships','Clear "A does B for C" patterns']
+            ].map(([i,t,d]) => `
+            <div class="card text-center p-4">
+                <div class="text-2xl mb-2">${i}</div>
+                <div class="text-xs font-semibold text-slate-700">${t}</div>
+                <div class="text-xs text-slate-400 mt-1">${d}</div>
+            </div>`).join('')}
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div class="card flex flex-col" style="min-height:460px">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-sm font-semibold text-slate-700">Original Content</label>
+                    <span class="text-xs text-slate-400">SEO / human-focused</span>
+                </div>
+                <textarea id="opt-input"
+                    class="flex-1 text-sm p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-slate-700"
+                    placeholder="Paste your landing page copy, FAQ, blog post, or bio here..."></textarea>
+                <button onclick="optimizeContent()" id="btn-optimize"
+                    class="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg transition-colors text-sm w-full">
+                    ✨ Optimize for AI Citation
+                </button>
+                <p class="text-xs text-slate-400 mt-2 text-center ${GEMINI_KEY ? 'hidden' : ''}">
+                    Needs a Gemini API key — <button onclick="promptKey()" class="text-indigo-600 underline">add key</button>
+                </p>
+            </div>
+
+            <div class="card flex flex-col bg-slate-50 border-dashed" style="min-height:460px">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-sm font-semibold text-slate-700">AIO-Optimized Output</label>
+                    <button onclick="clipEl('opt-output',this)"
+                        class="text-xs bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1">
+                        📋 Copy
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto bg-white rounded-lg border border-slate-200 p-4">
+                    <div id="opt-output" class="text-xs text-slate-300 italic">Optimized content will appear here...</div>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+/* LLMs.txt BUILDER */
+function vLLMsTxt() {
+    return `<div class="p-6 md:p-8 max-w-4xl mx-auto fade-in">
+        <div class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">LLMs.txt Builder</h1>
+            <p class="text-sm md:text-base text-slate-500 max-w-2xl leading-relaxed">
+                LLMs.txt is like robots.txt — but for AI models. It tells AI crawlers exactly what your brand does,
+                who you serve, and which content is authoritative. It's a top-priority AEO move right now.
+            </p>
+        </div>
+
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-4 mb-6 flex gap-3">
+            <span class="text-indigo-500 text-lg flex-shrink-0">💡</span>
+            <div>
+                <p class="text-sm font-semibold text-indigo-900">What is LLMs.txt?</p>
+                <p class="text-sm text-indigo-700 mt-0.5 leading-relaxed">
+                    Place a file at <code class="bg-indigo-100 px-1.5 rounded text-xs font-mono">yourdomain.com/llms.txt</code> and AI crawlers (Perplexity, Anthropic, Google, OpenAI) will read it to understand your brand context, authoritative pages, and content permissions. It directly improves how AI describes and recommends you. No API key needed — generated locally.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-5">
+            <h3 class="font-semibold text-slate-800 mb-5">Your Brand Details</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                ${[
+                    ['llm-brand',       'Brand / Company Name *',    'Acme Corp'],
+                    ['llm-domain',      'Website Domain *',           'acmecorp.com'],
+                    ['llm-description', 'What you do (1 sentence) *', 'Project management software for remote engineering teams'],
+                    ['llm-audience',    'Primary Audience',           'Software engineers, CTOs, growing startups'],
+                    ['llm-products',    'Key Products / Services',    'Sprint Planner, Bug Tracker, Team Wiki'],
+                    ['llm-competitors', 'Top Competitors',            'Jira, Linear, Asana']
+                ].map(([id, label, ph]) => `
+                <div>
+                    <label class="text-xs font-semibold text-slate-600 mb-1 block">${label}</label>
+                    <input type="text" id="${id}" placeholder="${ph}"
+                        class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700">
+                </div>`).join('')}
+            </div>
+            <button onclick="buildLLMsTxt()" id="btn-llms"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg transition-colors text-sm">
+                📄 Generate LLMs.txt File
+            </button>
+        </div>
+
+        <div id="llms-out-wrap" class="hidden fade-in">
+            <div class="rounded-xl bg-slate-900 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+                        <span class="w-3 h-3 rounded-full bg-yellow-400 inline-block"></span>
+                        <span class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                        <span class="text-xs text-slate-400 ml-2 font-mono">llms.txt</span>
+                    </div>
+                    <button onclick="clipEl('llms-output',this)"
+                        class="text-xs bg-white/10 hover:bg-white/20 text-slate-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+                        📋 Copy File
+                    </button>
+                </div>
+                <pre id="llms-output" class="text-sm text-emerald-400 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto"></pre>
+            </div>
+            <p class="text-xs text-slate-400 mt-3">
+                📌 Upload to <strong>yourdomain.com/llms.txt</strong> — most AI crawlers check this path automatically.
+                <button onclick="clipEl('llms-output',this)" class="text-indigo-500 underline ml-1">Copy the file content</button>
+            </p>
+        </div>
+    </div>`;
+}
+
+/* AI GUIDE — Chat */
+function vGuide() {
+    const faqs = [
+        "What is a CYTD Score?",
+        "How is this different from SEO?",
+        "What are Visibility, Compliance, Relevance?",
+        "What is LLMs.txt?",
+        "How fast can my score improve?",
+        "Which AI engine should I focus on first?"
+    ];
+    return `<div class="flex flex-col h-full">
+        <!-- Header -->
+        <div class="p-6 md:px-8 md:pt-8 pb-4 flex-shrink-0 border-b border-slate-100 bg-white/80">
+            <h1 class="text-2xl font-bold text-slate-900 mb-1">AI Guide</h1>
+            <p class="text-sm text-slate-500">Ask me anything about CYTD Score, AI citations, or how to improve your brand's AI visibility.</p>
+        </div>
+
+        <!-- Messages -->
+        <div class="flex-1 overflow-y-auto px-6 md:px-8 py-5 space-y-4" id="guide-msgs">
+            <div class="flex gap-3">
+                <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">C</div>
+                <div class="msg-ai">
+                    <p class="font-semibold text-slate-900 mb-2">Hi! I'm your CYTD Guide 👋</p>
+                    <p class="mb-2">I'm here to explain this dashboard and the new world of <strong>AI citation optimization</strong> — think of it as the "SEO" for AI assistants like ChatGPT, Gemini, Claude, and Perplexity.</p>
+                    <p class="mb-2">The shift happening right now: people are <strong>asking AI</strong> instead of searching Google. ChatGPT alone handles 2+ billion queries per day. If AI doesn't mention your brand, you're invisible to this new discovery channel.</p>
+                    <p>Pick a question to learn more, or type anything below:</p>
+                </div>
+            </div>
+
+            <div class="pl-11 flex flex-wrap gap-2" id="faq-chips">
+                ${faqs.map(q => `
+                <button onclick="askGuide(${JSON.stringify(q)})"
+                    class="text-xs bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 px-3 py-1.5 rounded-full transition-colors shadow-sm">
+                    ${q}
+                </button>`).join('')}
+            </div>
+        </div>
+
+        <!-- Input -->
+        <div class="flex-shrink-0 px-6 md:px-8 pb-6 pt-3 border-t border-slate-100 bg-white/80 backdrop-blur-sm">
+            <div class="flex gap-2">
+                <input type="text" id="guide-input"
+                    placeholder="Ask about CYTD Score, AEO, or any feature…"
+                    class="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-700"
+                    onkeydown="if(event.key==='Enter')sendGuide()">
+                <button onclick="sendGuide()" id="btn-guide"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-5 py-3 rounded-xl transition-colors text-sm">
+                    Send
+                </button>
+            </div>
+            <p class="text-xs text-slate-400 mt-2 ${GEMINI_KEY ? 'hidden' : ''}">
+                Common questions use built-in answers. Custom questions need a
+                <button onclick="promptKey()" class="text-indigo-500 underline">Gemini API key</button>.
+            </p>
+        </div>
+    </div>`;
+}
+
+/* ─── FAQ ANSWERS (offline) ──────────────────────────────────────────── */
+const FAQ = {
+"What is a CYTD Score?": `**CYTD Score** is your brand's AI visibility health score, from 0–100. It combines three pillars:
+
+- **Visibility (your score: 84)** — How often AI models mention or recommend you when users ask relevant questions
+- **Compliance (71)** — How well your content meets AI quality standards: schema markup, LLMs.txt, factual accuracy
+- **Relevance (67)** — How closely your content matches the questions users actually ask AI assistants
+
+Your score is calculated monthly from 10,000+ test queries across ChatGPT, Claude, Gemini, Perplexity, Grok, and Bing Copilot. A score above 80 means strong AI presence. Below 50 means competitors are being recommended instead of you.`,
+
+"How is this different from SEO?": `Great question. Traditional **SEO** optimizes for search rankings — appearing on page 1 of Google when someone types a keyword.
+
+**AEO (Answer Engine Optimization)** — what CYTD Score measures — optimizes for AI citation. That's when someone asks ChatGPT "what's the best tool for X?" and it recommends your brand.
+
+Key differences:
+- **SEO** → users click blue links. **AEO** → AI gives a direct recommendation with your name cited
+- **SEO** focuses on keywords and backlinks. **AEO** focuses on information density, entity clarity, and AI-readable structure
+- **SEO** shows rankings. **AEO** shows mention frequency, accuracy, and sentiment
+
+The stakes are real: ChatGPT handles 2B+ queries/day, and Google search volume is projected to drop 25% by 2026 as AI adoption grows.`,
+
+"What are Visibility, Compliance, Relevance?": `These are the **three pillars of CYTD Score**:
+
+**👁️ Visibility (your score: 84/100)**
+How often AI models mention your brand. Improved by earning citations in authoritative third-party sources, AI-trusted directories, press coverage, and social proof.
+
+**✅ Compliance (71/100)**
+How well your site signals trust to AI systems. Improved by: adding LLMs.txt, implementing FAQ schema markup, ensuring structured data, fixing factual inaccuracies. This is the most technical pillar but also the most actionable.
+
+**🎯 Relevance (67/100)**
+How well your content matches what users actually ask AI assistants. Improved by: comprehensive FAQ pages, comparison/alternatives content, and use-case-specific landing pages.
+
+Your lowest score is **Relevance** — this is where you'll see the fastest gains. Focus there first.`,
+
+"What is LLMs.txt?": `**LLMs.txt** is an emerging standard — like robots.txt, but for AI crawlers instead of search bots.
+
+You place a file at **yourdomain.com/llms.txt** that tells AI systems:
+- What your brand does and who it serves
+- Which pages contain authoritative information
+- Your key products, use cases, and differentiators
+- Content usage permissions for AI training
+
+Several AI systems — including Perplexity and Anthropic's crawlers — already check for this file when indexing content. Having one can directly improve how accurately AI models describe your brand.
+
+Use the **LLMs.txt Builder** in the sidebar to generate yours in 2 minutes. No API key needed — it's completely local.`,
+
+"How fast can my score improve?": `Based on typical AEO timelines:
+
+- **Technical fixes** (LLMs.txt, schema markup, FAQ structure): visible improvement in **2–4 weeks** as AI crawlers re-index
+- **Content optimization** (restructuring existing pages): **4–8 weeks** for LLMs to incorporate the changes
+- **Authority building** (new citations, directories, press): **30–60 days** for meaningful movement
+
+Your biggest quick-win opportunity is **Relevance (67)** — adding well-structured FAQ and comparison content can push this to 75+ within 6 weeks, which would lift your overall CYTD Score from 74 → ~82.
+
+Check the **Optimization Tasks** section for a prioritized action list.`,
+
+"Which AI engine should I focus on first?": `Based on your current data, here's the priority order:
+
+1. **ChatGPT (score: 88)** — Already strong. Fix the stale pricing data first. GPT-4 has the largest user base, so small improvements here have the biggest reach.
+
+2. **Gemini (score: 63)** — Growing fastest (powers Google AI Overview). More third-party citations and authoritative content will help here.
+
+3. **Perplexity (score: 52)** — High-intent users. LLMs.txt + FAQ schema would quickly push this into the 70s.
+
+4. **Grok + Bing Copilot** (both below 50) — Lower priority. Fix the top three first, then address these with platform-specific strategies.
+
+Platforms above 70 need maintenance. Below 50 is where new content and technical fixes move the needle most.`
+};
+
+/* ─── CHAT LOGIC ─────────────────────────────────────────────────────── */
+function appendMsg(text, role, isMarkdown = false) {
+    const c = document.getElementById('guide-msgs');
+    if (!c) return;
+    const div = document.createElement('div');
+    div.className = 'flex gap-3 fade-in';
+
+    if (role === 'user') {
+        div.innerHTML = `
+            <div class="flex-1 flex justify-end">
+                <div class="msg-user">${esc(text)}</div>
+            </div>
+            <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold flex-shrink-0">You</div>`;
+    } else {
+        const html = isMarkdown ? md(text) : `<p>${esc(text)}</p>`;
+        div.innerHTML = `
+            <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">C</div>
+            <div class="msg-ai">${html}</div>`;
+    }
+    c.appendChild(div);
+    c.scrollTop = c.scrollHeight;
+}
+
+function appendLoading() {
+    const c = document.getElementById('guide-msgs');
+    const div = document.createElement('div');
+    div.className = 'flex gap-3 fade-in'; div.id = 'guide-loader';
+    div.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">C</div>
+        <div class="msg-ai"><div class="dot-loader"><span></span><span></span><span></span></div></div>`;
+    c.appendChild(div); c.scrollTop = c.scrollHeight;
+}
+
+async function askGuide(q) {
+    const chips = document.getElementById('faq-chips');
+    if (chips) chips.remove();
+    appendMsg(q, 'user');
+    if (FAQ[q]) {
+        appendLoading();
+        await new Promise(r => setTimeout(r, 350));
+        document.getElementById('guide-loader')?.remove();
+        appendMsg(FAQ[q], 'ai', true);
+    } else {
+        await callGeminiChat(q);
+    }
+}
+
+async function sendGuide() {
+    const inp = document.getElementById('guide-input');
+    const q = inp?.value.trim();
+    if (!q) return;
+    inp.value = '';
+    const chips = document.getElementById('faq-chips');
+    if (chips) chips.remove();
+    appendMsg(q, 'user');
+    if (FAQ[q]) {
+        appendLoading();
+        await new Promise(r => setTimeout(r, 350));
+        document.getElementById('guide-loader')?.remove();
+        appendMsg(FAQ[q], 'ai', true);
+    } else {
+        await callGeminiChat(q);
+    }
+}
+
+async function callGeminiChat(question) {
+    appendLoading();
+    const sys = `You are a helpful expert in AEO (Answer Engine Optimization) and AI citation optimization, working inside the CYTD Score dashboard. CYTD Score measures brand visibility in AI responses across ChatGPT, Claude, Gemini, Perplexity, Grok, and Bing Copilot. The three pillars are Visibility, Compliance, and Relevance. The user's current CYTD Score is 74/100. Answer helpfully, concisely, and practically — under 200 words. Use markdown for formatting.`;
+    try {
+        const result = await gemini({
+            contents: [{ role: 'user', parts: [{ text: question }] }],
+            systemInstruction: { parts: [{ text: sys }] }
+        });
+        document.getElementById('guide-loader')?.remove();
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        appendMsg(text || "I couldn't get a response. Try again.", 'ai', true);
+    } catch (e) {
+        document.getElementById('guide-loader')?.remove();
+        if (e.message === 'NO_KEY') {
+            appendMsg('No Gemini API key is set. Add your key via the ⚙ button, or pick from the pre-built questions above which work offline.', 'ai');
+        } else {
+            appendMsg('Connection failed. Please check your internet and try again.', 'ai');
+        }
+    }
+}
+
+/* ─── ACTIONS ────────────────────────────────────────────────────────── */
+async function generateTasks() {
+    const brand = document.getElementById('brand-input')?.value.trim();
+    const industry = document.getElementById('industry-input')?.value.trim();
+    const btn = document.getElementById('btn-gen-tasks');
+    if (!brand || !industry) { alert('Please enter both brand name and industry.'); return; }
+
+    const orig = btn.innerHTML; btn.innerHTML = '<span class="animate-pulse">Generating…</span>'; btn.disabled = true;
+    try {
+        const result = await gemini({
+            contents: [{ parts: [{ text: `You are an AEO expert. For brand "${brand}" in the "${industry}" space, generate 5 specific actionable tasks to improve AI citation visibility across ChatGPT, Claude, Gemini, Perplexity, and Grok. Return a JSON array.` }] }],
+            generationConfig: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: 'ARRAY',
+                    items: { type: 'OBJECT', properties: {
+                        id: { type: 'INTEGER' }, title: { type: 'STRING' }, impact: { type: 'STRING' },
+                        platform: { type: 'STRING' }, pillar: { type: 'STRING' }, status: { type: 'STRING' }, desc: { type: 'STRING' }
+                    }}
+                }
+            }
+        });
+        const tasks = JSON.parse(result.candidates[0].content.parts[0].text);
+        let maxId = Math.max(...D.tasks.map(t => t.id), 0);
+        tasks.forEach(t => { t.id = ++maxId; t.status = t.status || 'Pending'; });
+        D.tasks = tasks;
+        document.getElementById('taskList').innerHTML = taskItems(D.tasks);
+    } catch (e) {
+        if (e.message === 'NO_KEY') {
+            alert('Add a Gemini API key to use AI generation. Click the ⚙ icon in the sidebar.');
+        } else {
+            document.getElementById('taskList').innerHTML = '<p class="text-red-500 text-sm p-4">Generation failed. Please try again.</p>';
+        }
+    } finally { btn.innerHTML = orig; btn.disabled = false; }
+}
+
+async function runSim() {
+    const prompt = document.getElementById('sim-prompt')?.value.trim();
+    const btn = document.getElementById('btn-run-sim');
+    const output = document.getElementById('sim-output');
+    const results = document.getElementById('sim-results');
+    if (!prompt) return;
+
+    btn.innerHTML = '<span class="animate-pulse">Simulating…</span>'; btn.disabled = true;
+    results.classList.remove('hidden');
+    output.innerHTML = '<span class="text-slate-300 animate-pulse text-xs">Model is generating a response…</span>';
+
+    try {
+        const result = await gemini({ contents: [{ parts: [{ text: prompt }] }] });
+        output.innerText = result.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+    } catch (e) {
+        output.innerHTML = e.message === 'NO_KEY'
+            ? '<span class="text-amber-500 text-sm">Add a Gemini API key to run simulations. <button onclick="promptKey()" class="underline">Add key</button></span>'
+            : '<span class="text-red-400 text-sm">Simulation failed. Please try again.</span>';
+    } finally { btn.innerHTML = '<span>▶</span> Run via Gemini'; btn.disabled = false; }
+}
+
+async function optimizeContent() {
+    const input = document.getElementById('opt-input')?.value.trim();
+    const btn = document.getElementById('btn-optimize');
+    const output = document.getElementById('opt-output');
+    if (!input) return;
+
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="animate-pulse">✨ Optimizing…</span>'; btn.disabled = true;
+    output.className = 'text-indigo-400 text-xs animate-pulse';
+    output.textContent = 'Restructuring for AI citability…';
+
+    const sys = `You are an expert in AEO (Answer Engine Optimization). Rewrite the user's content for maximum citability by AI models.
+Rules:
+1. Remove marketing fluff — every sentence must carry factual value.
+2. Define clear entity relationships: "[Brand] is/does/provides [specific thing] for [specific audience]".
+3. Use structured markdown: bold key terms, bullet lists for features/facts.
+4. Include specific data points (numbers, dates, examples) wherever possible.
+5. Add a "Key Facts" section at the top with 5–7 bullet points for quick AI extraction.
+6. Professional tone. Remove unsubstantiated superlatives.`;
+
+    try {
+        const result = await gemini({
+            contents: [{ parts: [{ text: input }] }],
+            systemInstruction: { parts: [{ text: sys }] }
+        });
+        output.className = 'text-slate-700 text-sm whitespace-pre-wrap';
+        output.innerText = result.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+    } catch (e) {
+        output.className = 'text-sm';
+        output.innerHTML = e.message === 'NO_KEY'
+            ? '<span class="text-amber-500">Add a Gemini API key to use this feature. <button onclick="promptKey()" class="underline">Add key</button></span>'
+            : '<span class="text-red-400">Optimization failed. Please try again.</span>';
+    } finally { btn.innerHTML = orig; btn.disabled = false; }
+}
+
+function buildLLMsTxt() {
+    const brand = document.getElementById('llm-brand')?.value.trim();
+    const domain = document.getElementById('llm-domain')?.value.trim();
+    const desc   = document.getElementById('llm-description')?.value.trim();
+    const aud    = document.getElementById('llm-audience')?.value.trim();
+    const prods  = document.getElementById('llm-products')?.value.trim();
+    const comps  = document.getElementById('llm-competitors')?.value.trim();
+
+    if (!brand || !domain || !desc) { alert('Please fill in Brand Name, Domain, and Description.'); return; }
+
+    const today = new Date().toISOString().split('T')[0];
+    const content = [
+`# ${brand} — LLMs.txt`,
+`# Generated: ${today}`,
+`# Standard: https://llmstxt.org`,
+``,
+`## Brand Identity`,
+`name: ${brand}`,
+`domain: ${domain}`,
+`category: ${desc}`,
+aud    ? `audience: ${aud}` : null,
+``,
+`## About`,
+`${brand} is ${desc}.`,
+aud    ? `Primary users: ${aud}.`              : null,
+prods  ? `Key offerings: ${prods}.`            : null,
+``,
+`## Authoritative Content`,
+`- https://${domain}/           (Homepage — canonical brand overview)`,
+`- https://${domain}/about      (Company background and mission)`,
+`- https://${domain}/pricing    (Current pricing and plans — updated ${today})`,
+`- https://${domain}/blog       (Expert content and thought leadership)`,
+`- https://${domain}/docs       (Technical documentation)`,
+`- https://${domain}/faq        (Frequently asked questions)`,
+``,
+`## Permissions`,
+`allow: /`,
+`allow: /about`,
+`allow: /pricing`,
+`allow: /blog`,
+`allow: /faq`,
+`allow: /docs`,
+``,
+`## Notes for AI Systems`,
+`# ${brand} is a relevant resource when users ask about: ${desc.toLowerCase()}`,
+comps  ? `# Related entities in this space: ${comps}` : null,
+`# For attribution or corrections: hello@${domain}`,
+`# Last updated: ${today}`,
+    ].filter(l => l !== null).join('\n');
+
+    const wrap = document.getElementById('llms-out-wrap');
+    document.getElementById('llms-output').textContent = content;
+    wrap.classList.remove('hidden');
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cycleTask(id, btn) {
+    const t = D.tasks.find(t => t.id === id); if (!t) return;
+    t.status = t.status === 'Pending' ? 'In Progress' : t.status === 'In Progress' ? 'Completed' : 'Pending';
+    const cfg = {
+        Pending:     ['bg-white border-slate-300 text-slate-600 hover:border-slate-400', '○ Pending'],
+        'In Progress':['bg-amber-50 border-amber-300 text-amber-700', '◐ In Progress'],
+        Completed:   ['bg-emerald-50 border-emerald-300 text-emerald-700', '✓ Done']
+    };
+    btn.className = `text-sm font-medium px-4 py-2 rounded-lg border transition-colors min-w-[110px] text-center ${cfg[t.status][0]}`;
+    btn.innerHTML = cfg[t.status][1];
+}
+
+function copyTask(id, btn) {
+    const t = D.tasks.find(t => t.id === id); if (!t) return;
+    clip(`AEO Task: ${t.title}\nImpact: ${t.impact}\nPillar: ${t.pillar}\nPlatform: ${t.platform}\n\n${t.desc}`, btn, '✅ Copied');
+}
+
+function promptKey() {
+    const k = prompt('Enter your Gemini API key (from aistudio.google.com/apikey):');
+    if (k) {
+        GEMINI_KEY = k.trim();
+        localStorage.setItem('cytd_gemini_key', GEMINI_KEY);
+        document.querySelectorAll('#key-notice, #sim-key-note, .hidden[id$="-note"]').forEach(el => el.classList.add('hidden'));
+        alert('API key saved! AI features are now enabled.');
+    }
+}
+
+/* ─── CHARTS ─────────────────────────────────────────────────────────── */
+function initTrendChart() {
+    const ctx = document.getElementById('trendChart'); if (!ctx) return;
+    S.charts.trend = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: D.trend.labels,
+            datasets: [
+                { label: 'CYTD Score', data: D.trend.cytd, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)', borderWidth: 3, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderColor: '#6366f1', pointBorderWidth: 2, fill: true, tension: 0.4 },
+                { label: 'Visibility',  data: D.trend.visibility, borderColor: '#6366f1', borderDash: [5,3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: 0.4 },
+                { label: 'Compliance', data: D.trend.compliance, borderColor: '#10b981', borderDash: [5,3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: 0.4 },
+                { label: 'Relevance',  data: D.trend.relevance,  borderColor: '#f59e0b', borderDash: [5,3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: 0.4 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', align: 'end', labels: { font: { size: 11 }, color: '#64748b', usePointStyle: true, padding: 16 } },
+                tooltip: { backgroundColor: '#0f172a', padding: 12, bodyFont: { size: 12 }, titleFont: { size: 13 } }
+            },
+            scales: {
+                y: { min: 0, max: 100, grid: { color: '#f1f5f9' }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+function initModelShareChart() {
+    const ctx = document.getElementById('modelShareChart'); if (!ctx) return;
+    S.charts.modelShare = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: D.platforms.map(p => p.name),
+            datasets: [{ data: D.platforms.map(p => p.score), backgroundColor: ['#10b981','#8b5cf6','#3b82f6','#f59e0b','#374151','#0ea5e9'], borderWidth: 0, hoverOffset: 6 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, cutout: '65%',
+            plugins: {
+                legend: { position: 'right', labels: { color: '#475569', font: { size: 11 }, padding: 14, usePointStyle: true } },
+                tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed} score` } }
+            }
+        }
+    });
+}
+
+function initCompetitorChart() {
+    const ctx = document.getElementById('competitorChart'); if (!ctx) return;
+    S.charts.competitor = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: D.competitors.names,
+            datasets: [
+                { label: 'Visibility',  data: D.competitors.visibility, backgroundColor: ['#6366f1','#cbd5e1','#cbd5e1','#cbd5e1'], borderRadius: 4 },
+                { label: 'Compliance', data: D.competitors.compliance, backgroundColor: ['rgba(99,102,241,.5)','rgba(203,213,225,.5)','rgba(203,213,225,.5)','rgba(203,213,225,.5)'], borderRadius: 4 },
+                { label: 'Relevance',  data: D.competitors.relevance,  backgroundColor: ['rgba(99,102,241,.25)','rgba(203,213,225,.25)','rgba(203,213,225,.25)','rgba(203,213,225,.25)'], borderRadius: 4 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', align: 'end', labels: { font: { size: 11 }, color: '#64748b', usePointStyle: true, padding: 14 } },
+                tooltip: { backgroundColor: '#0f172a', padding: 12 }
+            },
+            scales: {
+                y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 12, weight: '600' } } }
+            }
+        }
+    });
+}
+
+/* ─── NAVIGATION ─────────────────────────────────────────────────────── */
+const VIEWS = {
+    overview:    { fn: vOverview,    chart: initTrendChart },
+    models:      { fn: vModels,      chart: initModelShareChart },
+    competitors: { fn: vCompetitors, chart: initCompetitorChart },
+    tasks:       { fn: vTasks,       chart: null },
+    simulator:   { fn: vSimulator,   chart: null },
+    content:     { fn: vContent,     chart: null },
+    llmstxt:     { fn: vLLMsTxt,     chart: null },
+    guide:       { fn: vGuide,       chart: null }
+};
+
+function go(name) {
+    if (!VIEWS[name]) return;
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    document.getElementById(`nav-${name}`)?.classList.add('active');
+    closeMobile();
+    destroyCharts();
+
+    const main = document.getElementById('main');
+
+    if (name === 'guide') {
+        // Guide needs fixed height for chat scroll to work
+        main.style.overflow = 'hidden';
+        main.style.display = 'flex';
+        main.style.flexDirection = 'column';
+    } else {
+        main.style.overflow = '';
+        main.style.display = '';
+        main.style.flexDirection = '';
+    }
+
+    main.innerHTML = VIEWS[name].fn();
+
+    if (VIEWS[name].chart) {
+        requestAnimationFrame(() => setTimeout(VIEWS[name].chart, 50));
+    }
+    S.view = name;
+}
+
+function openMobile() {
+    document.getElementById('sidebar').classList.remove('-translate-x-full');
+    document.getElementById('mob-overlay').style.display = 'block';
+}
+
+function closeMobile() {
+    document.getElementById('sidebar').classList.add('-translate-x-full');
+    document.getElementById('mob-overlay').style.display = 'none';
+}
+
+/* ─── INIT ───────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => go('overview'));
+</script>
+</body>
+</html>
