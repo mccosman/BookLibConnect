@@ -1,0 +1,24 @@
+{
+  "name": "vitara-pharmacy",
+  "version": "1.0.0",
+  "description": "Vitara Pharmacy promotional video",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "npx remotion studio",
+    "preview": "npx remotion studio",
+    "build": "npx remotion render VitaraAd",
+    "upgrade": "npx remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.481",
+    "@remotion/google-fonts": "4.0.481",
+    "remotion": "4.0.481",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.1",
+    "@types/react-dom": "18.3.1",
+    "typescript": "5.4.5"
+  }
+}
