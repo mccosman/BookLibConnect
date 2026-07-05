@@ -55,4 +55,18 @@ if [ ! -f ~/.claude-video-vision/config.json ]; then
 JSON
 fi
 
+# bradautomates/claude-video watch skill config
+mkdir -p ~/.config/watch
+if [ ! -f ~/.config/watch/.env ]; then
+  cat > ~/.config/watch/.env << 'ENV'
+# /watch API configuration — add your Groq or OpenAI key to enable audio transcription.
+# YouTube videos use free native captions without any key.
+# Get a Groq key: https://console.groq.com/keys
+GROQ_API_KEY=
+OPENAI_API_KEY=
+WATCH_DETAIL=balanced
+SETUP_COMPLETE=true
+ENV
+fi
+
 echo "==> claude-video-vision setup complete"
