@@ -80,3 +80,8 @@ SETUP_COMPLETE=true
 ENV
 
 echo "==> claude-video-vision setup complete"
+
+# Coseman Video Watch — health check on every session start
+if [ -f "$CLAUDE_PROJECT_DIR/health_check.py" ]; then
+  python3 "$CLAUDE_PROJECT_DIR/health_check.py" || true
+fi
