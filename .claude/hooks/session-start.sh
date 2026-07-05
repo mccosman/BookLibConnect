@@ -24,9 +24,9 @@ if ! python3 -c "import whisper" &>/dev/null 2>&1; then
   pip3 install --quiet tiktoken tqdm numpy torch --index-url https://download.pytorch.org/whl/cpu
 fi
 
-# google-genai + openai + python-dotenv — for analyze_video.py
+# google-genai + openai + python-dotenv + mcp — for analyze_video.py and MCP server
 if ! python3 -c "import google.genai" &>/dev/null 2>&1; then
-  pip3 install --quiet cffi google-genai openai python-dotenv
+  pip3 install --quiet cffi google-genai openai python-dotenv "mcp[cli]" --ignore-installed PyJWT
 fi
 
 # claude-video-vision MCP server

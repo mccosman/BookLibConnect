@@ -3,6 +3,10 @@
     "claude-video-vision": {
       "command": "claude-video-vision",
       "args": []
+    },
+    "coseman-video-watch": {
+      "command": "python3",
+      "args": ["$CLAUDE_PROJECT_DIR/.claude/mcp/coseman-video-watch/server.py"]
     }
   },
   "hooks": {
