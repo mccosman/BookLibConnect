@@ -34,14 +34,24 @@ if ! command -v claude-video-vision &>/dev/null; then
   npm install -g --silent claude-video-vision@latest
 fi
 
-# Plugin config (local Whisper backend, images mode, index enabled)
+# Load API keys from project .env if present
+PROJECT_ENV="$CLAUDE_PROJECT_DIR/.env"
+GROQ_KEY=""
+OPENAI_KEY=""
+GEMINI_KEY=""
+if [ -f "$PROJECT_ENV" ]; then
+  GROQ_KEY=$(grep -E '^GROQ_API_KEY=' "$PROJECT_ENV" | cut -d= -f2- | tr -d '"' || true)
+  OPENAI_KEY=$(grep -E '^OPENAI_API_KEY=' "$PROJECT_ENV" | cut -d= -f2- | tr -d '"' || true)
+  GEMINI_KEY=$(grep -E '^GEMINI_API_KEY=' "$PROJECT_ENV" | cut -d= -f2- | tr -d '"' || true)
+fi
+
+# claude-video-vision config — always write so keys stay current
 mkdir -p ~/.claude-video-vision
-if [ ! -f ~/.claude-video-vision/config.json ]; then
-  cat > ~/.claude-video-vision/config.json << 'JSON'
+cat > ~/.claude-video-vision/config.json << JSON
 {
-  "backend": "local",
-  "whisper_engine": "python",
-  "whisper_model": "small",
+  "backend": "groq",
+  "groq_api_key": "$GROQ_KEY",
+  "whisper_model": "whisper-large-v3",
   "whisper_at": false,
   "frame_mode": "images",
   "frame_format": "jpeg",
@@ -58,20 +68,15 @@ if [ ! -f ~/.claude-video-vision/config.json ]; then
   "audio_chunk_overlap_seconds": 0
 }
 JSON
-fi
 
-# bradautomates/claude-video watch skill config
+# bradautomates/claude-video watch skill config — always write so keys stay current
 mkdir -p ~/.config/watch
-if [ ! -f ~/.config/watch/.env ]; then
-  cat > ~/.config/watch/.env << 'ENV'
-# /watch API configuration — add your Groq or OpenAI key to enable audio transcription.
-# YouTube videos use free native captions without any key.
-# Get a Groq key: https://console.groq.com/keys
-GROQ_API_KEY=
-OPENAI_API_KEY=
+cat > ~/.config/watch/.env << ENV
+# /watch API configuration
+GROQ_API_KEY=$GROQ_KEY
+OPENAI_API_KEY=$OPENAI_KEY
 WATCH_DETAIL=balanced
 SETUP_COMPLETE=true
 ENV
-fi
 
 echo "==> claude-video-vision setup complete"
