@@ -19,6 +19,16 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/user/BookLibConnect/.claude/hooks/protect_secrets.py"
+          }
+        ]
+      }
     ]
   }
 }
