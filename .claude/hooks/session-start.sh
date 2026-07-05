@@ -24,6 +24,11 @@ if ! python3 -c "import whisper" &>/dev/null 2>&1; then
   pip3 install --quiet tiktoken tqdm numpy torch --index-url https://download.pytorch.org/whl/cpu
 fi
 
+# google-genai + python-dotenv — for analyze_video.py (Gemini approach)
+if ! python3 -c "import google.genai" &>/dev/null 2>&1; then
+  pip3 install --quiet cffi google-genai python-dotenv
+fi
+
 # claude-video-vision MCP server
 if ! command -v claude-video-vision &>/dev/null; then
   npm install -g --silent claude-video-vision@latest
