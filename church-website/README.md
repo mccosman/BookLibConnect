@@ -23,6 +23,5 @@ Any static host works (GitHub Pages, Netlify, Vercel, or plain shared hosting). 
 
 ## Placeholders to confirm with the church before publishing
 - **Service times** — currently listed as Sunday School 9:30 AM and Sunday Morning Worship 11:00 AM; confirm the actual schedule.
-- **Photos** — the site currently uses no photos (color/typography only). Add a church exterior photo, a photo of Pastor, and choir/congregation photos to `assets/` for a more personal feel.
-- **Pastor's name and welcome message** — not included yet; add a dedicated "Meet Our Pastor" section once confirmed.
+- **Photos** — the site currently uses no photos (color/typography only), including a monogram placeholder ("JH") in place of a real photo of Reverend Joseph Hamm. Add a church exterior photo, a pastor photo, and choir/congregation photos to `assets/` for a more personal feel.
 - **Email address**, if the church has one, for a contact form or mailto link.
